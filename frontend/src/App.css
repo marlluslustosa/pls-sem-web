@@ -1,0 +1,637 @@
+/* Reset e variáveis globais - Estilo SmartPLS 4 */
+:root {
+  --primary-color: #2c5aa0;
+  --primary-dark: #1e3a6b;
+  --primary-light: #4a7bc8;
+  --accent-color: #ff6b35;
+  --success-color: #28a745;
+  --warning-color: #ffc107;
+  --danger-color: #dc3545;
+  --bg-primary: #f8f9fa;
+  --bg-secondary: #ffffff;
+  --bg-dark: #2c3e50;
+  --text-primary: #212529;
+  --text-secondary: #6c757d;
+  --border-color: #dee2e6;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.12);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Layout principal - SmartPLS style */
+.app {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+/* Header/Toolbar superior */
+.header {
+  background: var(--bg-dark);
+  color: white;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  box-shadow: var(--shadow-md);
+  z-index: 1000;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.header-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.header-logo-icon {
+  font-size: 1.5rem;
+}
+
+.header-menu {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.header-menu-item {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+  border-radius: 4px;
+}
+
+.header-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.header-right {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+/* Main workspace - SmartPLS layout */
+.workspace {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebar esquerdo - Project Explorer */
+.sidebar-left {
+  width: 260px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar-header {
+  padding: 1rem;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.project-section {
+  margin-bottom: 1rem;
+}
+
+.project-section-title {
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.project-section-title:hover {
+  background: var(--bg-primary);
+  border-radius: 4px;
+}
+
+.project-item {
+  padding: 0.5rem 0.5rem 0.5rem 1.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s;
+}
+
+.project-item:hover {
+  background: var(--bg-primary);
+  color: var(--primary-color);
+}
+
+.project-item.active {
+  background: var(--primary-color);
+  color: white;
+  font-weight: 500;
+}
+
+/* Área central - Canvas */
+.main-canvas {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Toolbar de ferramentas - estilo SmartPLS */
+.canvas-toolbar {
+  background: white;
+  border-bottom: 1px solid var(--border-color);
+  padding: 0.5rem 1rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.toolbar-group {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0 0.5rem;
+  border-right: 1px solid var(--border-color);
+}
+
+.toolbar-group:last-child {
+  border-right: none;
+}
+
+.toolbar-button {
+  background: white;
+  border: 1px solid var(--border-color);
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s;
+  color: var(--text-primary);
+}
+
+.toolbar-button:hover:not(:disabled) {
+  background: var(--bg-primary);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.toolbar-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbar-button.primary {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.toolbar-button.primary:hover:not(:disabled) {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
+
+.toolbar-button.success {
+  background: var(--success-color);
+  color: white;
+  border-color: var(--success-color);
+}
+
+.toolbar-button.success:hover:not(:disabled) {
+  background: #218838;
+}
+
+/* Input de constructo no toolbar */
+.toolbar-input {
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  min-width: 200px;
+}
+
+.toolbar-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+/* Canvas de trabalho */
+.flow-container {
+  flex: 1;
+  background: #fcfcfc;
+  position: relative;
+}
+
+/* Sidebar direito - Properties/Results */
+.sidebar-right {
+  width: 350px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar-tabs {
+  display: flex;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: 0.75rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.sidebar-tab:hover {
+  color: var(--primary-color);
+}
+
+.sidebar-tab.active {
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
+  background: white;
+}
+
+.sidebar-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+/* Resultados - estilo SmartPLS */
+.results-section {
+  margin-bottom: 1.5rem;
+}
+
+.results-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--primary-color);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Tabelas - estilo profissional */
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+  background: white;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.results-table thead {
+  background: var(--bg-primary);
+}
+
+.results-table th {
+  padding: 0.75rem 0.5rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border-color);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.results-table td {
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.results-table tbody tr:hover {
+  background: var(--bg-primary);
+}
+
+.results-table tbody tr.significant {
+  background: rgba(76, 175, 80, 0.05);
+}
+
+/* Status indicators */
+.status-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-badge.success {
+  background: rgba(40, 167, 69, 0.1);
+  color: var(--success-color);
+}
+
+.status-badge.warning {
+  background: rgba(255, 193, 7, 0.1);
+  color: #856404;
+}
+
+.status-badge.danger {
+  background: rgba(220, 53, 69, 0.1);
+  color: var(--danger-color);
+}
+
+/* Placeholder */
+.placeholder {
+  text-align: center;
+  padding: 3rem 1.5rem;
+  color: var(--text-secondary);
+}
+
+.placeholder-icon {
+  font-size: 3rem;
+  opacity: 0.3;
+  margin-bottom: 1rem;
+}
+
+.placeholder h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.placeholder p {
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.placeholder ol {
+  text-align: left;
+  margin: 1rem auto;
+  max-width: 300px;
+  line-height: 1.8;
+}
+
+/* Loading spinner */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--bg-primary);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error messages */
+.error {
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid var(--danger-color);
+  border-radius: 4px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  color: var(--danger-color);
+}
+
+.error strong {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+/* React Flow customization - SmartPLS style */
+.react-flow__node {
+  background: white;
+  border: 2px solid var(--primary-color);
+  border-radius: 6px;
+  padding: 12px 20px;
+  font-weight: 500;
+  font-size: 0.9rem;
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+}
+
+.react-flow__node:hover {
+  box-shadow: var(--shadow-lg);
+  border-color: var(--primary-dark);
+}
+
+.react-flow__node.selected {
+  box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+.react-flow__edge-path {
+  stroke: var(--primary-color);
+  stroke-width: 2;
+}
+
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke: var(--success-color);
+  stroke-width: 3;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--primary-dark);
+}
+
+.react-flow__edge-text {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.react-flow__controls {
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-color);
+}
+
+.react-flow__controls-button {
+  background: white;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--bg-primary);
+}
+
+.react-flow__minimap {
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-color);
+  background: white;
+}
+
+/* Model view specific */
+.model-view {
+  display: flex;
+  width: 100%;
+  flex: 1;
+  overflow: hidden;
+}
+
+.model-info-banner {
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+  color: white;
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow-sm);
+}
+
+.model-info-banner h2 {
+  font-size: 1.1rem;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.model-legend {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.85rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.legend-dot.significant {
+  background: var(--success-color);
+}
+
+.legend-dot.not-significant {
+  background: var(--text-secondary);
+}
+
+/* Scrollbar customization */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Animações suaves */
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .sidebar-left {
+    width: 220px;
+  }
+  
+  .sidebar-right {
+    width: 300px;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar-left,
+  .sidebar-right {
+    display: none;
+  }
+  
+  .header-menu {
+    display: none;
+  }
+}
+

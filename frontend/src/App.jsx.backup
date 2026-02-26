@@ -1,0 +1,712 @@
+import { useState, useCallback } from 'react';
+import ReactFlow, {
+  MiniMap,
+  Controls,
+  Background,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  MarkerType,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+import axios from 'axios';
+import './App.css';
+
+const API_URL = 'http://localhost:8000';
+
+// Nós iniciais de exemplo
+const initialNodes = [
+  {
+    id: 'Image',
+    type: 'default',
+    data: { label: 'Image' },
+    position: { x: 250, y: 0 },
+  },
+  {
+    id: 'Expectation',
+    type: 'default',
+    data: { label: 'Expectation' },
+    position: { x: 100, y: 150 },
+  },
+  {
+    id: 'Quality',
+    type: 'default',
+    data: { label: 'Quality' },
+    position: { x: 250, y: 200 },
+  },
+  {
+    id: 'Value',
+    type: 'default',
+    data: { label: 'Value' },
+    position: { x: 400, y: 200 },
+  },
+  {
+    id: 'Satisfaction',
+    type: 'default',
+    data: { label: 'Satisfaction' },
+    position: { x: 250, y: 350 },
+  },
+  {
+    id: 'Loyalty',
+    type: 'default',
+    data: { label: 'Loyalty' },
+    position: { x: 250, y: 500 },
+  },
+];
+
+const initialEdges = [];
+
+function App() {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [newConstructName, setNewConstructName] = useState('');
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const [bootstrapResults, setBootstrapResults] = useState(null);
+  const [activeTab, setActiveTab] = useState('builder'); // 'builder' ou 'model'
+  
+  // Nós e edges para visualização do modelo final
+  const [modelNodes, setModelNodes, onModelNodesChange] = useNodesState([]);
+  const [modelEdges, setModelEdges, onModelEdgesChange] = useEdgesState([]);
+
+  const onConnect = useCallback(
+    (params) => {
+      setEdges((eds) =>
+        addEdge(
+          {
+            ...params,
+            type: 'smoothstep',
+            animated: true,
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+            },
+          },
+          eds
+        )
+      );
+    },
+    [setEdges]
+  );
+
+  const addConstruct = () => {
+    if (!newConstructName.trim()) return;
+
+    const newNode = {
+      id: newConstructName,
+      type: 'default',
+      data: { label: newConstructName },
+      position: {
+        x: Math.random() * 400 + 100,
+        y: Math.random() * 400 + 100,
+      },
+    };
+
+    setNodes((nds) => [...nds, newNode]);
+    setNewConstructName('');
+  };
+
+  const runAnalysis = async () => {
+    setLoading(true);
+    setError(null);
+    setResults(null);
+
+    try {
+      // Prepara o modelo para enviar ao backend
+      const constructs = nodes.map((node) => ({
+        id: node.id,
+        indicators: [], // Em uma versão completa, você permitiria definir indicadores
+      }));
+
+      const relationships = edges.map((edge) => ({
+        source: edge.source,
+        target: edge.target,
+      }));
+
+      const modelData = {
+        constructs,
+        relationships,
+      };
+
+      console.log('Enviando modelo:', modelData);
+
+      const response = await axios.post(`${API_URL}/run-analysis`, modelData, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      console.log('Resposta:', response.data);
+
+      if (response.data.success) {
+        console.log('✅ Análise bem-sucedida');
+        console.log('Path coefficients:', response.data.path_coefficients);
+        console.log('R²:', response.data.r_squared);
+        
+        setResults(response.data);
+        
+        // Atualiza as arestas com os coeficientes de caminho
+        if (response.data.path_coefficients) {
+          const pathCoeffs = response.data.path_coefficients;
+          console.log('Atualizando arestas com coeficientes:', pathCoeffs);
+          
+          setEdges((eds) =>
+            eds.map((edge) => {
+              // Procura o coeficiente correspondente
+              const pathKey = `${edge.source}  ->  ${edge.target}`;
+              console.log(`Procurando: "${pathKey}"`);
+              const coeff = pathCoeffs[pathKey];
+              
+              if (coeff !== undefined) {
+                console.log(`Encontrado: ${coeff}`);
+                return {
+                  ...edge,
+                  label: `β = ${coeff.toFixed(3)}`,
+                  labelStyle: { fill: '#000', fontWeight: 700 },
+                  labelBgStyle: { fill: '#fff' },
+                };
+              }
+              console.log('Não encontrado');
+              return edge;
+            })
+          );
+        }
+      } else {
+        console.log('❌ Erro na resposta:', response.data.error);
+        setError(response.data.error || 'Erro desconhecido');
+      }
+    } catch (err) {
+      console.error('Erro:', err);
+      setError(err.message || 'Erro ao conectar com o backend');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearModel = () => {
+    setNodes([]);
+    setEdges([]);
+    setResults(null);
+    setBootstrapResults(null);
+    setError(null);
+  };
+
+  const runBootstrap = async () => {
+    setBootstrapping(true);
+    setError(null);
+
+    try {
+      const response = await axios.post(`${API_URL}/bootstrap`, null, {
+        params: { nboot: 1000, cores: 2 }
+      });
+
+      console.log('Bootstrap resposta:', response.data);
+
+      if (response.data.success) {
+        setBootstrapResults(response.data);
+        
+        // Cria visualização do modelo com resultados do bootstrap
+        createModelVisualization(response.data.bootstrap_summary);
+        
+        // Muda para aba do modelo
+        setActiveTab('model');
+      } else {
+        setError(response.data.error || 'Erro no bootstrap');
+      }
+    } catch (err) {
+      console.error('Erro bootstrap:', err);
+      setError(err.response?.data?.error || err.message || 'Erro ao executar bootstrap');
+    } finally {
+      setBootstrapping(false);
+    }
+  };
+  
+  const createModelVisualization = (bootstrapSummary) => {
+    // Extrai constructos únicos dos paths
+    const constructSet = new Set();
+    const pathsData = [];
+    
+    Object.entries(bootstrapSummary || {}).forEach(([path, stats]) => {
+      const match = path.match(/(.+?)\s*->\s*(.+)/);
+      if (match) {
+        const source = match[1].trim();
+        const target = match[2].trim();
+        constructSet.add(source);
+        constructSet.add(target);
+        pathsData.push({ source, target, stats });
+      }
+    });
+    
+    // Cria nós com posicionamento automático em camadas
+    const constructs = Array.from(constructSet);
+    const newNodes = constructs.map((construct, idx) => {
+      const col = idx % 3;
+      const row = Math.floor(idx / 3);
+      
+      return {
+        id: construct,
+        type: 'default',
+        data: { 
+          label: construct,
+        },
+        position: { 
+          x: 100 + col * 300, 
+          y: 100 + row * 200 
+        },
+        style: {
+          background: '#4CAF50',
+          color: 'white',
+          border: '2px solid #388E3C',
+          borderRadius: 8,
+          padding: 10,
+          fontSize: 14,
+          fontWeight: 'bold',
+        }
+      };
+    });
+    
+    // Cria edges com informações do bootstrap
+    const newEdges = pathsData.map((path, idx) => {
+      const { source, target, stats } = path;
+      const mean = typeof stats.bootstrap_mean === 'number' ? stats.bootstrap_mean : parseFloat(stats.bootstrap_mean) || 0;
+      const tValue = typeof stats.t_value === 'number' ? stats.t_value : parseFloat(stats.t_value) || 0;
+      const isSignificant = Math.abs(tValue) > 1.96; // p < 0.05
+      
+      return {
+        id: `e${idx}`,
+        source,
+        target,
+        type: 'smoothstep',
+        animated: isSignificant,
+        label: `β=${mean.toFixed(3)}\nt=${tValue.toFixed(2)}${isSignificant ? '*' : ''}`,
+        labelStyle: { 
+          fill: isSignificant ? '#1976D2' : '#666',
+          fontWeight: 700,
+          fontSize: 12,
+        },
+        labelBgStyle: { 
+          fill: 'white',
+          fillOpacity: 0.9,
+        },
+        style: {
+          stroke: isSignificant ? '#1976D2' : '#999',
+          strokeWidth: isSignificant ? 3 : 2,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: isSignificant ? '#1976D2' : '#999',
+        },
+      };
+    });
+    
+    setModelNodes(newNodes);
+    setModelEdges(newEdges);
+  };
+
+  const downloadPlot = async () => {
+    try {
+      setError(null);
+      // Abre em nova aba
+      const url = `${API_URL}/plot-model`;
+      window.open(url, '_blank');
+    } catch (err) {
+      console.error('Erro ao abrir plot:', err);
+      setError('Erro ao gerar diagrama. Verifique se os pacotes DiagrammeR e DiagrammeRsvg estão instalados.');
+    }
+  };
+
+  const loadExample = () => {
+    setNodes(initialNodes);
+    setEdges([
+      {
+        id: 'e1',
+        source: 'Image',
+        target: 'Expectation',
+        type: 'smoothstep',
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed },
+      },
+      {
+        id: 'e2',
+        source: 'Image',
+        target: 'Satisfaction',
+        type: 'smoothstep',
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed },
+      },
+      {
+        id: 'e3',
+        source: 'Expectation',
+        target: 'Quality',
+        type: 'smoothstep',
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed },
+      },
+      {
+        id: 'e4',
+        source: 'Quality',
+        target: 'Value',
+        type: 'smoothstep',
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed },
+      },
+      {
+        id: 'e5',
+        source: 'Value',
+        target: 'Satisfaction',
+        type: 'smoothstep',
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed },
+      },
+      {
+        id: 'e6',
+        source: 'Satisfaction',
+        target: 'Loyalty',
+        type: 'smoothstep',
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed },
+      },
+    ]);
+    setResults(null);
+    setError(null);
+  };
+
+  return (
+    <div className="app">
+      <div className="header">
+        <h1>🔬 PLS-SEM Visual Constructor</h1>
+        <p>Construa modelos PLS-SEM visualmente e execute no R</p>
+      </div>
+
+      {/* Sistema de Abas */}
+      <div className="tabs">
+        <button 
+          className={`tab ${activeTab === 'builder' ? 'active' : ''}`}
+          onClick={() => setActiveTab('builder')}
+        >
+          🏗️ Construtor de Modelo
+        </button>
+        <button 
+          className={`tab ${activeTab === 'model' ? 'active' : ''}`}
+          onClick={() => setActiveTab('model')}
+          disabled={!bootstrapResults}
+        >
+          📊 Modelo Final (Bootstrap)
+        </button>
+      </div>
+
+      {activeTab === 'builder' ? (
+        <>
+          <div className="toolbar">
+            <div className="input-group">
+              <input
+                type="text"
+                placeholder="Nome do Constructo"
+                value={newConstructName}
+                onChange={(e) => setNewConstructName(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && addConstruct()}
+              />
+              <button onClick={addConstruct}>➕ Adicionar Constructo</button>
+            </div>
+
+            <div className="button-group">
+              <button onClick={loadExample} className="btn-secondary">
+                📊 Carregar Exemplo
+              </button>
+              <button onClick={clearModel} className="btn-secondary">
+                🗑️ Limpar
+              </button>
+              <button
+                onClick={runAnalysis}
+                disabled={loading || edges.length === 0}
+                className="btn-primary"
+              >
+                {loading ? '⏳ Processando...' : '▶️ Executar Análise'}
+              </button>
+              <button
+                onClick={runBootstrap}
+                disabled={bootstrapping || !results}
+                className="btn-primary"
+              >
+                {bootstrapping ? '⏳ Bootstrapping...' : '🔬 Bootstrap Model'}
+              </button>
+              <button
+                onClick={downloadPlot}
+                disabled={!results}
+                className="btn-secondary"
+              >
+                📈 Ver Diagrama
+              </button>
+            </div>
+          </div>
+
+          <div className="content">
+            <div className="flow-container">
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                fitView
+              >
+                <Controls />
+                <MiniMap />
+                <Background variant="dots" gap={12} size={1} />
+              </ReactFlow>
+            </div>
+
+            <div className="results-panel">
+              <h2>📈 Resultados</h2>
+
+          {error && (
+            <div className="error">
+              <strong>❌ Erro:</strong>
+              <p>{error}</p>
+            </div>
+          )}
+
+          {!results && !error && !loading && (
+            <div className="placeholder">
+              <p>🎯 Conecte os constructos e clique em "Executar Análise"</p>
+              <p>
+                <strong>Como usar:</strong>
+              </p>
+              <ol>
+                <li>Adicione constructos ou carregue o exemplo</li>
+                <li>Conecte os nós arrastando das bordas</li>
+                <li>Execute a análise para ver os coeficientes</li>
+              </ol>
+            </div>
+          )}
+
+          {loading && (
+            <div className="loading">
+              <div className="spinner"></div>
+              <p>Executando análise PLS-SEM no R...</p>
+            </div>
+          )}
+
+          {results && results.success && (
+            <div className="results">
+              <h3>✅ Análise Concluída</h3>
+
+              <div className="result-section">
+                <h4>📊 Coeficientes de Caminho</h4>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Caminho</th>
+                      <th>Coeficiente</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(results.path_coefficients || {}).map(
+                      ([path, coeff]) => (
+                        <tr key={path}>
+                          <td>{path}</td>
+                          <td>{typeof coeff === 'number' ? coeff.toFixed(3) : coeff}</td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {results.r_squared && (
+                <div className="result-section">
+                  <h4>📈 R² (Variância Explicada)</h4>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Constructo</th>
+                        <th>R²</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(results.r_squared).map(([construct, r2]) => (
+                        <tr key={construct}>
+                          <td>{construct}</td>
+                          <td>{typeof r2 === 'number' ? r2.toFixed(3) : r2}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {bootstrapResults && bootstrapResults.success && (
+            <div className="results">
+              <h3>✅ Bootstrap Concluído</h3>
+
+              <div className="result-section">
+                <h4>🔬 Intervalos de Confiança (Bootstrap)</h4>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Caminho</th>
+                      <th>Média</th>
+                      <th>SD</th>
+                      <th>t-value</th>
+                      <th>IC 95% Inferior</th>
+                      <th>IC 95% Superior</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(bootstrapResults.bootstrap_summary || {}).map(
+                      ([path, stats]) => (
+                        <tr key={path}>
+                          <td>{path}</td>
+                          <td>{typeof stats.bootstrap_mean === 'number' ? stats.bootstrap_mean.toFixed(3) : stats.bootstrap_mean}</td>
+                          <td>{typeof stats.bootstrap_sd === 'number' ? stats.bootstrap_sd.toFixed(3) : stats.bootstrap_sd}</td>
+                          <td>{typeof stats.t_value === 'number' ? stats.t_value.toFixed(3) : stats.t_value}</td>
+                          <td>{typeof stats.ci_lower === 'number' ? stats.ci_lower.toFixed(3) : stats.ci_lower}</td>
+                          <td>{typeof stats.ci_upper === 'number' ? stats.ci_upper.toFixed(3) : stats.ci_upper}</td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+            </div>
+          </div>
+        </>
+      ) : (
+        /* Aba de Visualização do Modelo Final */
+        <div className="model-view">
+          <div className="model-info">
+            <h2>📊 Modelo PLS-SEM com Bootstrap</h2>
+            <p>
+              <strong>Legenda:</strong> 
+              <span style={{ color: '#1976D2', marginLeft: 10 }}>● Azul/Animado = Significativo (|t| &gt; 1.96, p &lt; 0.05)</span>
+              <span style={{ color: '#999', marginLeft: 10 }}>● Cinza = Não significativo</span>
+            </p>
+          </div>
+          
+          <div className="content">
+            <div className="flow-container model-flow">
+              <ReactFlow
+                nodes={modelNodes}
+                edges={modelEdges}
+                onNodesChange={onModelNodesChange}
+                onEdgesChange={onModelEdgesChange}
+                fitView
+                fitViewOptions={{ padding: 0.2 }}
+              >
+                <Controls />
+                <MiniMap 
+                  nodeColor={(node) => '#4CAF50'}
+                  maskColor="rgba(0, 0, 0, 0.1)"
+                />
+                <Background variant="dots" gap={12} size={1} />
+              </ReactFlow>
+            </div>
+
+            <div className="results-panel">
+              <h2>📊 Estatísticas do Modelo</h2>
+
+              {bootstrapResults && (
+                <div className="results">
+                  <div className="result-section">
+                    <h4>📈 Resumo dos Paths</h4>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Caminho</th>
+                          <th>β (média)</th>
+                          <th>t-value</th>
+                          <th>Sig.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(bootstrapResults.bootstrap_summary || {}).map(
+                          ([path, stats]) => {
+                            const mean = typeof stats.bootstrap_mean === 'number' ? stats.bootstrap_mean : parseFloat(stats.bootstrap_mean) || 0;
+                            const tValue = typeof stats.t_value === 'number' ? stats.t_value : parseFloat(stats.t_value) || 0;
+                            const isSignificant = Math.abs(tValue) > 1.96;
+                            return (
+                              <tr key={path} style={{ 
+                                background: isSignificant ? '#E3F2FD' : 'transparent' 
+                              }}>
+                                <td>{path}</td>
+                                <td style={{ fontWeight: 'bold' }}>
+                                  {mean.toFixed(3)}
+                                </td>
+                                <td>{tValue.toFixed(3)}</td>
+                                <td>{isSignificant ? '✓ Sim' : '✗ Não'}</td>
+                              </tr>
+                            );
+                          }
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="result-section">
+                    <h4>🔬 Intervalos de Confiança (95%)</h4>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Caminho</th>
+                          <th>IC Inferior</th>
+                          <th>IC Superior</th>
+                          <th>SD</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(bootstrapResults.bootstrap_summary || {}).map(
+                          ([path, stats]) => {
+                            const ciLower = typeof stats.ci_lower === 'number' ? stats.ci_lower : parseFloat(stats.ci_lower) || 0;
+                            const ciUpper = typeof stats.ci_upper === 'number' ? stats.ci_upper : parseFloat(stats.ci_upper) || 0;
+                            const sd = typeof stats.bootstrap_sd === 'number' ? stats.bootstrap_sd : parseFloat(stats.bootstrap_sd) || 0;
+                            return (
+                              <tr key={path}>
+                                <td>{path}</td>
+                                <td>{ciLower.toFixed(3)}</td>
+                                <td>{ciUpper.toFixed(3)}</td>
+                                <td>{sd.toFixed(3)}</td>
+                              </tr>
+                            );
+                          }
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {results && results.r_squared && (
+                    <div className="result-section">
+                      <h4>📊 R² (Variância Explicada)</h4>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Constructo</th>
+                            <th>R²</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(results.r_squared).map(([construct, r2]) => (
+                            <tr key={construct}>
+                              <td>{construct}</td>
+                              <td>{typeof r2 === 'number' ? r2.toFixed(3) : r2}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;

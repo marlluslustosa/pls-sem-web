@@ -1,0 +1,22 @@
+{
+  "name": "pls-sem-web",
+  "version": "1.0.0",
+  "description": "PoC para construir e executar modelos PLS-SEM visualmente",
+  "scripts": {
+    "start": "./start.sh",
+    "backend": "cd backend && Rscript start_api.R",
+    "frontend": "cd frontend && npm run dev",
+    "install:backend": "cd backend && Rscript install_dependencies.R",
+    "install:frontend": "cd frontend && npm install",
+    "install:all": "npm run install:backend && npm run install:frontend"
+  },
+  "keywords": [
+    "pls-sem",
+    "structural-equation-modeling",
+    "r",
+    "react",
+    "data-analysis"
+  ],
+  "author": "",
+  "license": "MIT"
+}

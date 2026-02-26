@@ -1,0 +1,734 @@
+# API PLS-SEM com Plumber
+library(plumber)
+library(seminr)
+library(jsonlite)
+
+# Dataset de exemplo (mobi do seminr)
+data("mobi", package = "seminr")
+
+#* @apiTitle API PLS-SEM
+#* @apiDescription API para executar análises PLS-SEM usando seminr
+
+#* Habilita CORS
+#* @filter cors
+function(req, res) {
+  res$setHeader("Access-Control-Allow-Origin", "*")
+  res$setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+  res$setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
+  
+  if (req$REQUEST_METHOD == "OPTIONS") {
+    res$status <- 200
+    return(list())
+  } else {
+    plumber::forward()
+  }
+}
+
+#* Retorna o dataset de exemplo (mobi)
+#* @get /dataset
+function() {
+  return(list(
+    name = "mobi",
+    rows = nrow(mobi),
+    columns = ncol(mobi),
+    variables = names(mobi),
+    preview = head(mobi, 10)
+  ))
+}
+
+#* Upload de dataset customizado
+#* @post /upload-dataset
+function(req) {
+  if (!is.null(req$postBody)) {
+    tryCatch({
+      # Parse CSV data
+      csv_data <- read.csv(text = rawToChar(req$postBody))
+      assign("custom_dataset", csv_data, envir = .GlobalEnv)
+      
+      return(list(
+        success = TRUE,
+        rows = nrow(csv_data),
+        columns = ncol(csv_data),
+        variables = names(csv_data)
+      ))
+    }, error = function(e) {
+      return(list(
+        success = FALSE,
+        error = as.character(e)
+      ))
+    })
+  }
+}
+
+#* Executa análise PLS-SEM
+#* @post /run-analysis
+function(req) {
+  tryCatch({
+    # Parse o JSON do frontend
+    model_data <- jsonlite::fromJSON(req$postBody, simplifyVector = FALSE)
+    
+    # Determina qual dataset usar
+    dataset <- if (exists("custom_dataset")) custom_dataset else mobi
+    
+    # Constrói o modelo de mensuração
+    measurements <- list()
+    
+    if (!is.null(model_data$constructs) && length(model_data$constructs) > 0) {
+      for (i in seq_along(model_data$constructs)) {
+        construct <- model_data$constructs[[i]]
+        construct_name <- construct$id
+        indicators <- unlist(construct$indicators)
+        
+        if (length(indicators) > 0) {
+          # Verifica se os indicadores existem no dataset
+          valid_indicators <- indicators[indicators %in% names(dataset)]
+          
+          if (length(valid_indicators) > 0) {
+            measurements[[construct_name]] <- valid_indicators
+          }
+        }
+      }
+    }
+    
+    # Se não há indicadores definidos, usa padrão do mobi
+    if (length(measurements) == 0) {
+      measurements <- constructs(
+        composite("Image", multi_items("IMAG", 1:3)),
+        composite("Expectation", multi_items("CUEX", 1:3)),
+        composite("Quality", multi_items("PERQ", 1:7)),
+        composite("Value", multi_items("PERV", 1:2)),
+        composite("Satisfaction", multi_items("CUSA", 1:3)),
+        composite("Complaints", single_item("CUSCO")),
+        composite("Loyalty", multi_items("CUSL", 1:3))
+      )
+    } else {
+      # Cria o modelo de mensuração a partir dos constructos dinâmicos
+      composite_list <- list()
+      for (name in names(measurements)) {
+        composite_list[[length(composite_list) + 1]] <- composite(name, measurements[[name]])
+      }
+      measurements <- do.call(constructs, composite_list)
+    }
+    
+    # Constrói o modelo estrutural baseado nas relações (edges)
+    relationships_data <- model_data$relationships
+    
+    if (!is.null(relationships_data) && length(relationships_data) > 0) {
+      # Agrupa relações por fonte
+      from_to_map <- list()
+      for (i in seq_along(relationships_data)) {
+        rel <- relationships_data[[i]]
+        source <- rel$source
+        target <- rel$target
+        
+        if (is.null(from_to_map[[source]])) {
+          from_to_map[[source]] <- character(0)
+        }
+        from_to_map[[source]] <- c(from_to_map[[source]], target)
+      }
+      
+      # Cria paths usando a sintaxe correta do seminr
+      path_list <- list()
+      for (from_construct in names(from_to_map)) {
+        to_constructs <- from_to_map[[from_construct]]
+        path_list[[length(path_list) + 1]] <- paths(from = from_construct, to = to_constructs)
+      }
+      
+      sm <- do.call(relationships, path_list)
+    } else {
+      # Modelo estrutural padrão do mobi
+      sm <- relationships(
+        paths(from = "Image", to = c("Expectation", "Satisfaction", "Loyalty")),
+        paths(from = "Expectation", to = c("Quality", "Value", "Satisfaction")),
+        paths(from = "Quality", to = c("Value", "Satisfaction")),
+        paths(from = "Value", to = "Satisfaction"),
+        paths(from = "Satisfaction", to = c("Complaints", "Loyalty")),
+        paths(from = "Complaints", to = "Loyalty")
+      )
+    }
+    
+    # Estima o modelo PLS
+    pls_model <- estimate_pls(
+      data = dataset,
+      measurement_model = measurements,
+      structural_model = sm
+    )
+    
+    # Armazena o modelo na sessão para bootstrap posterior
+    assign("last_pls_model", pls_model, envir = .GlobalEnv)
+    assign("last_dataset", dataset, envir = .GlobalEnv)
+    
+    # Extrai resultados
+    summary_result <- summary(pls_model)
+    
+    # Extrai coeficientes de caminho da matriz paths
+    paths_matrix <- summary_result$paths
+    
+    # Extrair path coefficients (todos os valores exceto R² e Adj R²)
+    path_coefficients <- list()
+    r_squared <- list()
+    
+    # Percorre todas as colunas (dependentes/outcomes)
+    for (col_name in colnames(paths_matrix)) {
+      # Percorre todas as linhas (independentes/predictors)
+      for (row_name in rownames(paths_matrix)) {
+        value <- paths_matrix[row_name, col_name]
+        
+        # Se for R² ou Adj R², adiciona à lista de R²
+        if (row_name == "R^2" || row_name == "AdjR^2") {
+          if (!is.na(value)) {
+            r_squared[[col_name]] <- value
+          }
+        } else {
+          # Caso contrário, é um path coefficient
+          if (!is.na(value)) {
+            path_name <- paste0(row_name, " -> ", col_name)
+            path_coefficients[[path_name]] <- value
+          }
+        }
+      }
+    }
+    
+    # Formata resposta
+    response <- list(
+      success = TRUE,
+      path_coefficients = path_coefficients,
+      loadings = as.list(summary_result$loadings),
+      weights = as.list(summary_result$weights),
+      total_effects = as.list(summary_result$total_effects),
+      r_squared = r_squared
+    )
+    
+    return(response)
+    
+  }, error = function(e) {
+    return(list(
+      success = FALSE,
+      error = as.character(e),
+      message = "Erro ao executar análise PLS-SEM"
+    ))
+  })
+}
+
+#* Executa bootstrap no último modelo estimado
+#* @post /bootstrap
+function(nboot = 1000, cores = 1, seed = 123) {
+  tryCatch({
+    if (!exists("last_pls_model")) {
+      return(list(
+        success = FALSE,
+        error = "Nenhum modelo foi estimado ainda. Execute /run-analysis primeiro."
+      ))
+    }
+    
+    # Recupera o último modelo
+    pls_model <- get("last_pls_model", envir = .GlobalEnv)
+    
+    # Define seed para reprodutibilidade
+    set.seed(as.numeric(seed))
+    
+    # Executa bootstrap
+    boot_estimates <- bootstrap_model(
+      seminr_model = pls_model,
+      nboot = as.numeric(nboot),
+      cores = as.numeric(cores)
+    )
+    
+    # Extrai resultados do bootstrap
+    boot_summary <- summary(boot_estimates)
+    boot_paths <- as.data.frame(boot_summary$bootstrapped_paths)
+    
+    # Formata intervalos de confiança
+    bootstrap_results <- list()
+    for (path_name in rownames(boot_paths)) {
+      bootstrap_results[[path_name]] <- list(
+        original_estimate = boot_paths[path_name, 1],
+        bootstrap_mean = boot_paths[path_name, 2],
+        bootstrap_sd = boot_paths[path_name, 3],
+        t_value = if(ncol(boot_paths) >= 4) boot_paths[path_name, 4] else NA,
+        ci_lower = if(ncol(boot_paths) >= 5) boot_paths[path_name, 5] else NA,
+        ci_upper = if(ncol(boot_paths) >= 6) boot_paths[path_name, 6] else NA
+      )
+    }
+    
+    # Armazena para plotagem
+    assign("last_boot_model", boot_estimates, envir = .GlobalEnv)
+    
+    return(list(
+      success = TRUE,
+      nboot = nboot,
+      bootstrap_summary = bootstrap_results
+    ))
+    
+  }, error = function(e) {
+    return(list(
+      success = FALSE,
+      error = as.character(e),
+      message = "Erro ao executar bootstrap"
+    ))
+  })
+}
+
+#* Executa PLSpredict (out-of-sample prediction)
+#* @post /pls-predict
+function(k = 10, reps = 10, seed = 123) {
+  tryCatch({
+    if (!exists("last_pls_model")) {
+      return(list(
+        success = FALSE,
+        error = "Nenhum modelo foi estimado ainda. Execute /run-analysis primeiro."
+      ))
+    }
+    
+    # Recupera o último modelo
+    pls_model <- get("last_pls_model", envir = .GlobalEnv)
+    
+    # Define seed para reprodutibilidade
+    set.seed(as.numeric(seed))
+    
+    # IMPLEMENTAÇÃO MANUAL completa (evita bugs do seminr com paralelização)
+    message("Using manual PLSpredict implementation (k=", k, ", reps=", reps, ")")
+    
+    # Garante formato correto dos dados
+    data <- as.data.frame(pls_model$data)
+    n <- nrow(data)
+    k_folds <- as.numeric(k)
+    repetitions <- as.numeric(reps)
+    
+    # Extrai constructs dependentes (que têm preditores)
+    path_matrix <- pls_model$path_coef
+    dep_constructs <- colnames(path_matrix)[colSums(!is.na(path_matrix)) > 0]
+    
+    # Armazena todas as predições e valores reais
+    all_predictions <- list()
+    all_actuals <- list()
+    
+    for (dep_var in dep_constructs) {
+      all_predictions[[dep_var]] <- c()
+      all_actuals[[dep_var]] <- c()
+    }
+    
+    # Executa k-fold cross-validation repetido
+    for (rep in 1:repetitions) {
+      # Embaralha índices para esta repetição
+      indices <- sample(1:n)
+      fold_size <- floor(n / k_folds)
+    # Executa k-fold cross-validation repetido
+    for (rep in 1:repetitions) {
+      # Embaralha índices para esta repetição
+      indices <- sample(1:n)
+      fold_size <- floor(n / k_folds)
+      
+      for (fold in 1:k_folds) {
+        # Define índices de treino e teste
+        start_idx <- (fold - 1) * fold_size + 1
+        end_idx <- ifelse(fold == k_folds, n, fold * fold_size)
+        test_idx <- indices[start_idx:end_idx]
+        train_idx <- setdiff(1:n, test_idx)
+        
+        # Divide dados
+        train_data <- as.data.frame(data[train_idx, , drop = FALSE])
+        test_data <- as.data.frame(data[test_idx, , drop = FALSE])
+        
+        # Re-estima modelo com dados de treino
+        tryCatch({
+          fold_model <- estimate_pls(
+            data = train_data,
+            measurement_model = pls_model$measurement_model,
+            structural_model = pls_model$structural_model
+          )
+          
+          # Para cada construct dependente
+          for (dep_var in dep_constructs) {
+            # Identifica constructs que predizem este dependente
+            predictors <- rownames(path_matrix)[!is.na(path_matrix[, dep_var])]
+            
+            if (length(predictors) > 0) {
+              # Calcula scores dos constructs preditores no conjunto de teste
+              # Usando a média dos indicadores (simplificação do PLS)
+              test_scores <- list()
+              
+              for (pred_construct in predictors) {
+                indicators <- as.character(pls_model$measurement_model[[pred_construct]])
+                indicators <- indicators[indicators %in% colnames(test_data)]
+                
+                if (length(indicators) > 0) {
+                  if (length(indicators) == 1) {
+                    test_scores[[pred_construct]] <- test_data[, indicators]
+                  } else {
+                    test_scores[[pred_construct]] <- rowMeans(test_data[, indicators, drop = FALSE], na.rm = TRUE)
+                  }
+                }
+              }
+              
+              # Faz predição linear usando coeficientes do path do fold_model
+              if (length(test_scores) > 0) {
+                pred_values <- rep(0, nrow(test_data))
+                
+                for (pred_construct in names(test_scores)) {
+                  coef <- fold_model$path_coef[pred_construct, dep_var]
+                  if (!is.na(coef) && !is.null(coef)) {
+                    pred_values <- pred_values + coef * test_scores[[pred_construct]]
+                  }
+                }
+                
+                # Calcula valores reais do construct dependente
+                dep_indicators <- as.character(pls_model$measurement_model[[dep_var]])
+                dep_indicators <- dep_indicators[dep_indicators %in% colnames(test_data)]
+                
+                if (length(dep_indicators) > 0) {
+                  if (length(dep_indicators) == 1) {
+                    actual_values <- test_data[, dep_indicators]
+                  } else {
+                    actual_values <- rowMeans(test_data[, dep_indicators, drop = FALSE], na.rm = TRUE)
+                  }
+                  
+                  # Armazena predições e valores reais
+                  all_predictions[[dep_var]] <- c(all_predictions[[dep_var]], pred_values)
+                  all_actuals[[dep_var]] <- c(all_actuals[[dep_var]], actual_values)
+                }
+              }
+            }
+          }
+          
+        }, error = function(e_fold) {
+          message("Fold ", fold, " rep ", rep, " failed: ", e_fold$message)
+        })
+      }
+    }
+    
+    # Calcula métricas de performance para cada construct
+    results <- list()
+    
+    for (dep_var in dep_constructs) {
+      preds <- all_predictions[[dep_var]]
+      acts <- all_actuals[[dep_var]]
+      
+      if (length(preds) > 0 && length(acts) > 0) {
+        # Remove NAs
+        valid_idx <- !is.na(preds) & !is.na(acts)
+        preds <- preds[valid_idx]
+        acts <- acts[valid_idx]
+        
+        if (length(preds) > 0) {
+          # RMSE (Root Mean Square Error)
+          rmse <- sqrt(mean((preds - acts)^2))
+          
+          # MAE (Mean Absolute Error)
+          mae <- mean(abs(preds - acts))
+          
+          # Q² (Predictive Relevance) = 1 - (SSE/SSO)
+          # SSE = Sum of Squared Errors (prediction)
+          # SSO = Sum of Squares Observed (baseline: mean)
+          sse <- sum((preds - acts)^2)
+          sso <- sum((acts - mean(acts))^2)
+          q2 <- 1 - (sse / sso)
+          
+          results[[dep_var]] <- list(
+            Q2 = q2,
+            RMSE = rmse,
+            MAE = mae
+          )
+        }
+      }
+    }
+    
+    return(list(
+      success = TRUE,
+      results = results,
+      folds = k_folds,
+      repetitions = repetitions,
+      method = "manual_cv"
+    ))
+    
+  }, error = function(e) {
+    return(list(
+      success = FALSE,
+      error = paste("PLSpredict failed:", e$message)
+    ))
+  })
+}
+
+#* Gera plot do modelo
+#* @get /plot-model {
+              # Define índices de teste
+              start_idx <- (fold - 1) * fold_size + 1
+              end_idx <- ifelse(fold == k_folds, n, fold * fold_size)
+              test_idx <- indices[start_idx:end_idx]
+              train_idx <- setdiff(1:n, test_idx)
+              
+              # Dados de treino e teste (força data.frame limpo)
+              train_data <- as.data.frame(data[train_idx, ])
+              test_data <- as.data.frame(data[test_idx, ])
+              
+              # Re-estima modelo com dados de treino
+              tryCatch({
+                fold_model <- estimate_pls(
+                  data = train_data,
+                  measurement_model = model$measurement_model,
+                  structural_model = model$structural_model
+                )
+                
+                # Faz predições para variáveis dependentes
+                # (simplificado - usa coeficientes do path)
+                for (dep_var in dep_vars) {
+                  # Identifica preditores
+                  predictors <- rownames(model$path_coef)[!is.na(model$path_coef[, dep_var])]
+                  
+                  if (length(predictors) > 0) {
+                    # Calcula scores dos constructs no conjunto de teste
+                    # (simplificação: usa média dos indicadores)
+                    test_scores <- list()
+                    for (pred in predictors) {
+                      indicators <- model$measurement_model[[pred]]
+                      if (!is.null(indicators) && length(indicators) > 0) {
+                        # Garante que indicators é um vetor simples
+                        indicators <- as.character(indicators)
+                        indicators <- indicators[indicators %in% colnames(test_data)]
+                        
+                        if (length(indicators) > 0) {
+                          test_scores[[pred]] <- rowMeans(as.data.frame(test_data[, indicators, drop = FALSE]))
+                        }
+                      }
+                    }
+                    
+                    # Predição linear
+                    if (length(test_scores) > 0) {
+                      pred_values <- rep(0, nrow(test_data))
+                      for (pred in names(test_scores)) {
+                        coef <- fold_model$path_coef[pred, dep_var]
+                        if (!is.na(coef)) {
+                          pred_values <- pred_values + coef * test_scores[[pred]]
+                        }
+                      }
+                      
+                      # Armazena predições e valores reais
+                      actual_indicators <- model$measurement_model[[dep_var]]
+                      if (!is.null(actual_indicators) && length(actual_indicators) > 0) {
+                        # Garante que é um vetor simples
+                        actual_indicators <- as.character(actual_indicators)
+                        actual_indicators <- actual_indicators[actual_indicators %in% colnames(test_data)]
+                        
+                        if (length(actual_indicators) > 0) {
+                          actual_values <- rowMeans(as.data.frame(test_data[, actual_indicators, drop = FALSE]))
+                          
+                          if (is.null(fold_predictions[[dep_var]])) {
+                            fold_predictions[[dep_var]] <- c()
+                            fold_actuals[[dep_var]] <- c()
+                          }
+                          
+                          fold_predictions[[dep_var]] <- c(fold_predictions[[dep_var]], pred_values)
+                          fold_actuals[[dep_var]] <- c(fold_actuals[[dep_var]], actual_values)
+                        }
+                      }
+                    }
+                  }
+                }
+                
+              }, error = function(e2) {
+                message("Fold ", fold, " failed: ", e2$message)
+              })
+            }
+            
+            # Acumula resultados da repetição
+            for (dep_var in names(fold_predictions)) {
+              if (is.null(predictions[[dep_var]])) {
+                predictions[[dep_var]] <- list()
+                actuals[[dep_var]] <- list()
+              }
+              predictions[[dep_var]][[rep]] <- fold_predictions[[dep_var]]
+              actuals[[dep_var]][[rep]] <- fold_actuals[[dep_var]]
+            }
+          }
+          
+          # Calcula métricas
+          metrics <- list()
+          for (dep_var in names(predictions)) {
+            all_preds <- unlist(predictions[[dep_var]])
+            all_actuals <- unlist(actuals[[dep_var]])
+            
+            if (length(all_preds) > 0 && length(all_actuals) > 0) {
+              # RMSE
+              rmse <- sqrt(mean((all_preds - all_actuals)^2))
+              
+              # MAE
+              mae <- mean(abs(all_preds - all_actuals))
+              
+              # Q²
+              ss_res <- sum((all_actuals - all_preds)^2)
+              ss_tot <- sum((all_actuals - mean(all_actuals))^2)
+              q2 <- 1 - (ss_res / ss_tot)
+              
+              metrics[[dep_var]] <- list(
+                RMSE = rmse,
+                MAE = mae,
+                Q2 = q2
+              )
+            }
+          }
+          
+          # Retorna estrutura compatível
+          list(
+            metrics = metrics,
+            k_folds = k_folds,
+            repetitions = repetitions
+          )
+          
+        } else {
+          stop(e)
+        }
+      })
+      
+      result
+    }
+    
+    # Executa PLSpredict com proteção
+    predict_result <- safe_predict(pls_model, k, reps)
+    
+    # Formata resultados
+    if (!is.null(predict_result$metrics)) {
+      metrics_list <- predict_result$metrics
+    } else {
+      # Tenta extrair do objeto predict_pls
+      metrics_list <- list()
+      if (!is.null(predict_result$PLS_predict_metrics)) {
+        for (var_name in names(predict_result$PLS_predict_metrics)) {
+          metrics_list[[var_name]] <- list(
+            RMSE = predict_result$PLS_predict_metrics[[var_name]]$RMSE,
+            MAE = predict_result$PLS_predict_metrics[[var_name]]$MAE,
+            Q2 = predict_result$PLS_predict_metrics[[var_name]]$Q_square
+          )
+        }
+      }
+    }
+    
+    # Armazena resultado
+    assign("last_predict_result", predict_result, envir = .GlobalEnv)
+    
+    return(list(
+      success = TRUE,
+      k_folds = k,
+      repetitions = reps,
+      metrics = metrics_list
+    ))
+    
+  }, error = function(e) {
+    return(list(
+      success = FALSE,
+      error = as.character(e),
+      message = "Erro ao executar PLSpredict"
+    ))
+  })
+}
+
+#* Gera gráfico do modelo
+#* @get /plot-model
+#* @serializer contentType list(type="image/png")
+function(res) {
+  tryCatch({
+    # Verifica pacotes necessários
+    if (!requireNamespace("DiagrammeR", quietly = TRUE) || 
+        !requireNamespace("DiagrammeRsvg", quietly = TRUE) ||
+        !requireNamespace("rsvg", quietly = TRUE)) {
+      res$status <- 500
+      return(list(error = "Pacotes DiagrammeR, DiagrammeRsvg e rsvg são necessários para plotagem."))
+    }
+    
+    if (!exists("last_pls_model")) {
+      res$status <- 400
+      return(list(error = "Nenhum modelo disponível. Execute /run-analysis primeiro."))
+    }
+    
+    # Usa o modelo bootstrap se disponível, senão usa o modelo PLS
+    model_to_plot <- if (exists("last_boot_model")) {
+      get("last_boot_model", envir = .GlobalEnv)
+    } else {
+      get("last_pls_model", envir = .GlobalEnv)
+    }
+    
+    # Gera o plot (retorna objeto DiagrammeR)
+    diagram <- plot(model_to_plot, title = "PLS-SEM Model")
+    
+    # Converte para SVG
+    svg_string <- DiagrammeRsvg::export_svg(diagram)
+    
+    # Converte SVG para PNG usando rsvg
+    png_data <- rsvg::rsvg_png(charToRaw(svg_string), width = 1200, height = 800)
+    
+    # Retorna os bytes PNG
+    return(png_data)
+    
+  }, error = function(e) {
+    res$status <- 500
+    return(list(
+      success = FALSE,
+      error = as.character(e),
+      message = "Erro ao gerar plot. Verifique se todos os pacotes estão instalados."
+    ))
+  })
+}
+
+#* Salva o plot do modelo em PDF
+#* @post /save-plot
+function(filename = "pls_model.pdf") {
+  tryCatch({
+    if (!exists("last_pls_model")) {
+      return(list(
+        success = FALSE,
+        error = "Nenhum modelo disponível. Execute /run-analysis primeiro."
+      ))
+    }
+    
+    # Verifica pacotes necessários
+    if (!requireNamespace("DiagrammeR", quietly = TRUE) || 
+        !requireNamespace("DiagrammeRsvg", quietly = TRUE) ||
+        !requireNamespace("rsvg", quietly = TRUE)) {
+      return(list(
+        success = FALSE,
+        error = "Pacotes DiagrammeR, DiagrammeRsvg e rsvg são necessários."
+      ))
+    }
+    
+    # Usa o modelo bootstrap se disponível
+    model_to_plot <- if (exists("last_boot_model")) {
+      get("last_boot_model", envir = .GlobalEnv)
+    } else {
+      get("last_pls_model", envir = .GlobalEnv)
+    }
+    
+    # Garante extensão .pdf
+    if (!grepl("\\.pdf$", filename)) {
+      filename <- paste0(filename, ".pdf")
+    }
+    
+    # Gera o plot
+    diagram <- plot(model_to_plot, title = "PLS-SEM Model")
+    
+    # Converte para SVG
+    svg_string <- DiagrammeRsvg::export_svg(diagram)
+    
+    # Salva como PDF
+    rsvg::rsvg_pdf(charToRaw(svg_string), file = filename)
+    
+    return(list(
+      success = TRUE,
+      filename = filename,
+      message = paste("Plot salvo como", filename)
+    ))
+    
+  }, error = function(e) {
+    return(list(
+      success = FALSE,
+      error = as.character(e)
+    ))
+  })
+}
+
+#* Health check
+#* @get /health
+function() {
+  return(list(
+    status = "ok",
+    timestamp = Sys.time()
+  ))
+}
