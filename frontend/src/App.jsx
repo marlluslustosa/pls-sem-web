@@ -149,12 +149,13 @@ function App() {
           setEdges((eds) =>
             eds.map((edge) => {
               const pathKey = `${edge.source} -> ${edge.target}`;
-              const coeff = pathCoeffs[pathKey];
+              const rawCoeff = pathCoeffs[pathKey];
+              const coeff = Array.isArray(rawCoeff) ? rawCoeff[0] : rawCoeff;
               
               if (coeff !== undefined) {
                 return {
                   ...edge,
-                  label: `β = ${coeff.toFixed(3)}`,
+                  label: `β = ${Number(coeff).toFixed(3)}`,
                   labelStyle: { fill: '#000', fontWeight: 700 },
                   labelBgStyle: { fill: '#fff' },
                 };
@@ -585,7 +586,7 @@ function App() {
                             ([path, coeff]) => (
                               <tr key={path}>
                                 <td>{path}</td>
-                                <td>{typeof coeff === 'number' ? coeff.toFixed(3) : coeff}</td>
+                                <td>{Number(Array.isArray(coeff) ? coeff[0] : coeff).toFixed(3)}</td>
                               </tr>
                             )
                           )}
@@ -607,7 +608,7 @@ function App() {
                             {Object.entries(results.r_squared).map(([construct, r2]) => (
                               <tr key={construct}>
                                 <td>{construct}</td>
-                                <td>{typeof r2 === 'number' ? r2.toFixed(3) : r2}</td>
+                                <td>{Number(Array.isArray(r2) ? r2[0] : r2).toFixed(3)}</td>
                               </tr>
                             ))}
                           </tbody>
