@@ -148,7 +148,7 @@ function App() {
         if (Object.keys(pathCoeffs).length > 0) {
           setEdges((eds) =>
             eds.map((edge) => {
-              const pathKey = `${edge.source}  ->  ${edge.target}`;
+              const pathKey = `${edge.source} -> ${edge.target}`;
               const coeff = pathCoeffs[pathKey];
               
               if (coeff !== undefined) {
